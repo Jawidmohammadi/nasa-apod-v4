@@ -14,6 +14,7 @@ import edu.cnm.deepdive.nasaapod.model.repository.ApodRepository;
 import edu.cnm.deepdive.nasaapod.service.ApodService;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.CompositeDisposable;
+import io.reactivex.functions.Action;
 import io.reactivex.functions.Consumer;
 import java.text.ParseException;
 import java.util.Date;
@@ -66,14 +67,27 @@ public class MainViewModel extends AndroidViewModel implements LifecycleObserver
     );
   }
 
-  public void getImage(@NonNull Apod apod, @NonNull Consumer<String> pathConsumer) {
+  public void getImageUrl(@NonNull Apod apod, @NonNull Consumer<String> pathConsumer) {
     throwable.setValue(null);
     pending.add(
-        repository.getImage(apod)
+        repository.getImageUrl(apod)
             // Consume result on main thread, since pathConsumer will probably "touch" the UI.
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(
                 pathConsumer,
+                throwable::setValue
+            )
+    );
+  }
+
+  public void downloadImage(@NonNull Apod apod, Action onSuccess) {
+    Action successAction = (onSuccess != null) ? onSuccess : () -> {};
+    throwable.setValue(null);
+    pending.add(
+        repository.downloadImage(apod)
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe(
+                successAction,
                 throwable::setValue
             )
     );

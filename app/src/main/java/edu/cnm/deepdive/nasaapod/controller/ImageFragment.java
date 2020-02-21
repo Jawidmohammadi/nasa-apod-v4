@@ -22,8 +22,10 @@ import edu.cnm.deepdive.nasaapod.viewmodel.MainViewModel;
 
 public class ImageFragment extends Fragment {
 
+  protected static final String IMAGE_DOWNLOADED = "Image downloaded to gallery.";
   private WebView contentView;
   private Apod apod;
+  private MainViewModel viewModel;
 
   @Override
   public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -43,10 +45,10 @@ public class ImageFragment extends Fragment {
   @Override
   public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
     super.onViewCreated(view, savedInstanceState);
-    MainViewModel viewModel = new ViewModelProvider(getActivity()).get(MainViewModel.class);
+    viewModel = new ViewModelProvider(getActivity()).get(MainViewModel.class);
     viewModel.getApod().observe(getViewLifecycleOwner(), (apod) -> {
       this.apod = apod;
-      viewModel.getImage(apod, contentView::loadUrl);
+      viewModel.getImageUrl(apod, contentView::loadUrl);
     });
   }
 
@@ -63,6 +65,9 @@ public class ImageFragment extends Fragment {
       case R.id.info:
         showInfo();
         break;
+      case R.id.download:
+        downloadToGallery();
+        break;
       default:
         handled = super.onOptionsItemSelected(item);
     }
@@ -73,6 +78,15 @@ public class ImageFragment extends Fragment {
     if (apod != null) {
       new InfoFragment().show(getChildFragmentManager(), InfoFragment.class.getName());
     }
+  }
+
+  private void downloadToGallery() {
+    MainActivity activity = (MainActivity) getActivity();
+    activity.setProgressVisibility(View.VISIBLE);
+    viewModel.downloadImage(apod, () -> {
+      activity.setProgressVisibility(View.GONE);
+      activity.showToast(IMAGE_DOWNLOADED);
+    });
   }
 
   @SuppressLint({"SetJavaScriptEnabled"})

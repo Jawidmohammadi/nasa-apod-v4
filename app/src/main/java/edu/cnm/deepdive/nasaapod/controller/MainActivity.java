@@ -1,11 +1,17 @@
 package edu.cnm.deepdive.nasaapod.controller;
 
+import android.Manifest;
+import android.Manifest.permission;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.navigation.NavController;
 import androidx.navigation.NavOptions;
@@ -20,8 +26,12 @@ import edu.cnm.deepdive.nasaapod.R;
 import edu.cnm.deepdive.nasaapod.viewmodel.MainViewModel;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.LinkedList;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
+
+  private static final int EXTERNAL_STORAGE_PERMISSIONS_REQUEST = 1000;
 
   private MainViewModel viewModel;
   private NavController navController;
@@ -33,10 +43,23 @@ public class MainActivity extends AppCompatActivity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
+    checkPermissions(permission.READ_EXTERNAL_STORAGE, permission.WRITE_EXTERNAL_STORAGE);
     loading = findViewById(R.id.loading);
     setupNavigation();
     setupViewModel();
     setupCalendarPicker();
+  }
+
+  @Override
+  public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+      @NonNull int[] grantResults) {
+    if (requestCode == EXTERNAL_STORAGE_PERMISSIONS_REQUEST) {
+      if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+      } else {
+
+      }
+    }
   }
 
   public void loadApod(Date date) {
@@ -54,6 +77,26 @@ public class MainActivity extends AppCompatActivity {
     toast.setGravity(Gravity.BOTTOM, 0,
         getResources().getDimensionPixelOffset(R.dimen.toast_vertical_margin));
     toast.show();
+  }
+
+  private void checkPermissions(String... permissions) {
+    List<String> permissionsToRequest = new LinkedList<>();
+    List<String> permissionsToExplain = new LinkedList<>();
+    for (String permission : permissions) {
+      if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+        permissionsToRequest.add(permission);
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
+          permissionsToExplain.add(permission);
+        }
+      } else {
+
+      }
+    }
+    if (!permissionsToExplain.isEmpty()) {
+    } else if (!permissionsToRequest.isEmpty()) {
+      ActivityCompat.requestPermissions(this, permissionsToRequest.toArray(new String[0]),
+          EXTERNAL_STORAGE_PERMISSIONS_REQUEST);
+    }
   }
 
   private void setupViewModel() {

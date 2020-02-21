@@ -2,7 +2,14 @@ package edu.cnm.deepdive.nasaapod.model.repository;
 
 import android.annotation.SuppressLint;
 import android.app.Application;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.provider.MediaStore.MediaColumns;
+import android.provider.MediaStore.Images.Media;
+import android.webkit.MimeTypeMap;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import edu.cnm.deepdive.nasaapod.BuildConfig;
@@ -14,6 +21,7 @@ import edu.cnm.deepdive.nasaapod.model.entity.Apod.MediaType;
 import edu.cnm.deepdive.nasaapod.model.pojo.ApodWithStats;
 import edu.cnm.deepdive.nasaapod.service.ApodDatabase;
 import edu.cnm.deepdive.nasaapod.service.ApodService;
+import io.reactivex.Completable;
 import io.reactivex.Maybe;
 import io.reactivex.Single;
 import io.reactivex.SingleSource;
@@ -31,12 +39,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import okhttp3.ResponseBody;
 
-public class ApodRepository {
+public final class ApodRepository {
 
   private static final int NETWORK_THREAD_COUNT = 10;
   private static final Pattern URL_FILENAME_PATTERN =
       Pattern.compile("^.*/([^/#?]+)(?:\\?.*)?(?:#.*)?$");
   private static final String LOCAL_FILENAME_FORMAT = "%1$tY%1$tm%1$td-%2$s";
+  private static final int BUFFER_SIZE = 1 << 14;
+  private static final String INVALID_MEDIA_TYPE = "Only images can be downloaded.";
+  private static final String MEDIA_RECORD_FAILURE = "Unable to create MediaStore record.";
 
   private final ApodDatabase database;
   private final ApodService nasa;
@@ -84,14 +95,14 @@ public class ApodRepository {
     return database.getApodDao().selectWithStats();
   }
 
-  public Single<String> getImage(@NonNull Apod apod) {
-    // TODO Add local file download & reference.
+  public Single<String> getImageUrl(@NonNull Apod apod) {
     boolean canBeLocal = (apod.getMediaType() == MediaType.IMAGE);
     File file = canBeLocal ? getFile(apod) : null;
     return Maybe.fromCallable(() ->
         canBeLocal ? (file.exists() ? file.toURI().toString() : null) : apod.getUrl())
         .switchIfEmpty((SingleSource<String>) (observer) ->
             nasa.getFile(apod.getUrl())
+                .subscribeOn(Schedulers.from(networkPool))
                 .map((body) -> {
                   try {
                     return download(body, file);
@@ -99,9 +110,31 @@ public class ApodRepository {
                     return apod.getUrl();
                   }
                 })
-                .subscribeOn(Schedulers.from(networkPool))
                 .subscribe(observer)
         );
+  }
+
+  public Completable downloadImage(@NonNull Apod apod) {
+    if (apod.getMediaType() != MediaType.IMAGE) {
+      throw new IllegalArgumentException(INVALID_MEDIA_TYPE);
+    }
+    String url = (apod.getHdUrl() != null) ? apod.getHdUrl() : apod.getUrl();
+    return nasa.getFile(url)
+        .subscribeOn(Schedulers.from(networkPool))
+        .map((body) -> {
+          ContentResolver resolver = context.getContentResolver();
+          Uri uri = getMediaUri(resolver, url, apod.getTitle());
+          try (
+              InputStream input = body.byteStream();
+              OutputStream output = context.getContentResolver().openOutputStream(uri);
+          ) {
+            copy(input, output);
+          } catch (IOException ex) {
+            resolver.delete(uri, null, null);
+          }
+          return true;
+        })
+        .ignoreElement();
   }
 
   private String download(ResponseBody body, File file) throws IOException {
@@ -109,16 +142,23 @@ public class ApodRepository {
         InputStream input = body.byteStream();
         OutputStream output = new FileOutputStream(file);
     ) {
-      byte[] buffer = new byte[16_384];
-      int bytesRead;
-      do {
-        if ((bytesRead = input.read(buffer)) > 0) {
-          output.write(buffer, 0, bytesRead);
-        }
-      } while (bytesRead >= 0);
-      output.flush();
+      copy(input, output);
       return file.toURI().toString();
     }
+  }
+
+  private long copy(InputStream input, OutputStream output) throws IOException {
+    byte[] buffer = new byte[BUFFER_SIZE];
+    long totalBytes = 0;
+    int bytesRead;
+    do {
+      if ((bytesRead = input.read(buffer)) > 0) {
+        output.write(buffer, 0, bytesRead);
+        totalBytes += bytesRead;
+      }
+    } while (bytesRead >= 0);
+    output.flush();
+    return totalBytes;
   }
 
   private File getFile(@NonNull Apod apod) {
@@ -135,6 +175,25 @@ public class ApodRepository {
       file = new File(directory, filename);
     }
     return file;
+  }
+
+  @NonNull
+  private Uri getMediaUri(@NonNull ContentResolver resolver, @NonNull String sourceUrl,
+      @NonNull String title) throws IOException {
+    String extension = MimeTypeMap.getFileExtensionFromUrl(sourceUrl);
+    MimeTypeMap map = MimeTypeMap.getSingleton();
+    String mimeType = map.getMimeTypeFromExtension(extension);
+    ContentValues contentValues = new ContentValues();
+    contentValues.put(MediaColumns.DISPLAY_NAME, title);
+    contentValues.put(MediaColumns.MIME_TYPE, mimeType);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      contentValues.put(MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+    }
+    Uri uri = resolver.insert(Media.EXTERNAL_CONTENT_URI, contentValues);
+    if (uri == null) {
+      throw new IOException(MEDIA_RECORD_FAILURE);
+    }
+    return uri;
   }
 
   private void insertAccess(Apod apod) {
