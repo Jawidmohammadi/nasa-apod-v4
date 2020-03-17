@@ -36,6 +36,21 @@ public interface ApodDao {
       + "ORDER BY \n"
       + "    a.date DESC;";
 
+  String APOD_MRU_QUERY =
+      "SELECT \n "
+      + "a.* \n"
+      + "FROM \n"
+      + "     Apod AS a \n"
+      + "     INNER JOIN ( \n"
+      + "       SELECT \n"
+      + "         apod_id, \n"
+      + "         MAX(timestamp) As last_accessed \n"
+      + "     FROM \n"
+      + "         Access \n"
+      + "     GROUP BY "
+      + "         apod_id \n"
+      + "   ) AS mru \n "
+      + "   ON mru.apod_id = a.apod_id WHERE a.media_type = 0 ORDER BY mru.last_accessed DESC \n ";
   @Insert
   Single<Long> insert(Apod apod);
 
@@ -65,5 +80,8 @@ public interface ApodDao {
 
   @Query("SELECT * FROM Apod WHERE apod_id = :id")
   Single<Apod> select(long id);
+
+  @Query(APOD_MRU_QUERY)
+  Single<List<Apod>> selectMru();
 
 }
